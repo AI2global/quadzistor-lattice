@@ -1,0 +1,150 @@
+
+<div style="width:100%;background:#0a0a0f;border-radius:12px;padding:0;overflow:hidden;min-height:600px;">
+<canvas id="c" style="display:block;width:100%;"></canvas>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:0.5px solid #1e1e2e;">
+  <div style="display:flex;gap:20px;align-items:center;">
+    <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);color:#888;">
+      <span style="width:8px;height:8px;border-radius:50%;background:#1e1e3a;border:1px solid #3a3a5a;display:inline-block;"></span>NULL
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);color:#888;">
+      <span style="width:8px;height:8px;border-radius:50%;background:#1D9E75;display:inline-block;"></span>AFFIRM
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);color:#888;">
+      <span style="width:8px;height:8px;border-radius:50%;background:#378ADD;display:inline-block;"></span>CONDITIONAL
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);color:#888;">
+      <span style="width:8px;height:8px;border-radius:50%;background:#E24B4A;display:inline-block;"></span>INHIBIT
+    </span>
+  </div>
+  <span id="stepLabel" style="font-size:11px;font-family:var(--font-mono);color:#555;">step 0 / 64</span>
+</div>
+<div style="display:flex;gap:8px;padding:0 20px 16px;justify-content:center;">
+  <button id="btnPlay" onclick="togglePlay()" style="font-size:12px;padding:6px 16px;background:transparent;border:0.5px solid #333;border-radius:6px;color:#aaa;cursor:pointer;">play settlement</button>
+  <button onclick="resetSim()" style="font-size:12px;padding:6px 16px;background:transparent;border:0.5px solid #333;border-radius:6px;color:#aaa;cursor:pointer;">reset</button>
+  <button onclick="newScenario()" style="font-size:12px;padding:6px 16px;background:transparent;border:0.5px solid #333;border-radius:6px;color:#aaa;cursor:pointer;">new scenario</button>
+</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stepLabel = document.getElementById('stepLabel');
+const btnPlay = document.getElementById('btnPlay');
+
+const GRID = 12;
+const STATE_COLORS = ['#1a1a2e','#1D9E75','#378ADD','#E24B4A'];
+const STATE_BRIGHT = ['#2a2a4a','#2ec896','#5ba8f0','#f06060'];
+
+let grid = [], nextGrid = [], step = 0, playing = false, animId = null, lastTime = 0;
+const STEP_INTERVAL = 180;
+
+function initGrid() {
+  grid = [];
+  for(let x=0;x<GRID;x++){grid[x]=[];for(let y=0;y<GRID;y++){grid[x][y]=[];for(let z=0;z<GRID;z++)grid[x][y][z]=0;}}
+}
+
+function seedScenario(type) {
+  initGrid();
+  if(type===0) {
+    for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)for(let z=0;z<GRID;z++){
+      let r=Math.random();
+      grid[x][y][z]=r<0.55?0:r<0.75?1:r<0.9?2:3;
+    }
+    for(let i=0;i<3;i++){
+      let sx=Math.floor(Math.random()*4)+1,sy=Math.floor(Math.random()*4)+1,sz=Math.floor(Math.random()*4)+1;
+      for(let dx=0;dx<4;dx++)for(let dy=0;dy<4;dy++)for(let dz=0;dz<4;dz++)
+        if(sx+dx<GRID&&sy+dy<GRID&&sz+dz<GRID)grid[sx+dx][sy+dy][sz+dz]=3;
+    }
+  } else if(type===1) {
+    for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)for(let z=0;z<GRID;z++)grid[x][y][z]=1;
+    let cx=Math.floor(GRID/2),cy=Math.floor(GRID/2),cz=Math.floor(GRID/2);
+    for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++)for(let dz=-2;dz<=2;dz++)
+      if(cx+dx>=0&&cx+dx<GRID&&cy+dy>=0&&cy+dy<GRID&&cz+dz>=0&&cz+dz<GRID)
+        grid[cx+dx][cy+dy][cz+dz]=3;
+  } else {
+    for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)for(let z=0;z<GRID;z++)
+      grid[x][y][z]=x<GRID/3?1:x<2*GRID/3?2:0;
+    for(let y=0;y<GRID;y++)for(let z=0;z<GRID;z++){grid[0][y][z]=3;grid[1][y][z]=3;}
+  }
+}
+
+function stepSim() {
+  nextGrid=[];
+  for(let x=0;x<GRID;x++){nextGrid[x]=[];for(let y=0;y<GRID;y++){nextGrid[x][y]=[];for(let z=0;z<GRID;z++){
+    let sum=0,count=0;
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){
+      let nx=x+dx,ny=y+dy,nz=z+dz;
+      if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID&&nz>=0&&nz<GRID){sum+=grid[nx][ny][nz];count++;}
+    }
+    nextGrid[x][y][z]=Math.min(3,Math.max(0,Math.round(sum/count)));
+  }}}
+  grid=nextGrid.map(a=>a.map(b=>[...b]));
+  step++;
+}
+
+let angle=0.4,scene=0;
+function draw(ts) {
+  const W=canvas.offsetWidth,H=Math.round(W*0.65);
+  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,W,H);
+
+  angle+=0.004;
+  const ca=Math.cos(angle),sa=Math.sin(angle);
+  const tilt=0.52;
+  const cx=W/2,cy=H/2-H*0.04;
+  const cellSize=W/(GRID*3.6);
+
+  let cells=[];
+  for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)for(let z=0;z<GRID;z++){
+    let wx=(x-GRID/2+0.5)*cellSize,wy=(y-GRID/2+0.5)*cellSize,wz=(z-GRID/2+0.5)*cellSize;
+    let rx=wx*ca-wz*sa,rz=wx*sa+wz*ca;
+    let sx=cx+rx,sy=cy+wy*tilt+rz*0.28;
+    cells.push({sx,sy,rz,state:grid[x][y][z],x,y,z});
+  }
+  cells.sort((a,b)=>a.rz-b.rz||(a.sy-b.sy));
+
+  const cs=cellSize*0.72;
+  for(const c of cells){
+    const s=c.state,bright=STATE_BRIGHT[s],base=STATE_COLORS[s];
+    const isInhibit=s===3,isAffirm=s===1;
+    ctx.globalAlpha=s===0?0.18:s===1?0.7:s===2?0.8:0.95;
+    ctx.fillStyle=base;
+    ctx.fillRect(c.sx-cs/2,c.sy-cs/2,cs,cs);
+    if(s>0){
+      ctx.globalAlpha=s===0?0.05:0.35;
+      ctx.strokeStyle=bright;
+      ctx.lineWidth=s===3?1.2:0.5;
+      ctx.strokeRect(c.sx-cs/2,c.sy-cs/2,cs,cs);
+    }
+    if(isInhibit){
+      ctx.globalAlpha=0.9;
+      ctx.fillStyle='#E24B4A';
+      ctx.fillRect(c.sx-cs*0.18,c.sy-cs*0.18,cs*0.36,cs*0.36);
+    }
+    if(isAffirm&&Math.random()<0.015){
+      ctx.globalAlpha=0.6;
+      ctx.fillStyle='#2ec896';
+      ctx.beginPath();ctx.arc(c.sx,c.sy,cs*0.2,0,Math.PI*2);ctx.fill();
+    }
+  }
+  ctx.globalAlpha=1;
+  stepLabel.textContent=`step ${step} / 64`;
+  if(playing&&ts-lastTime>STEP_INTERVAL){
+    if(step<64)stepSim();else{playing=false;btnPlay.textContent='play settlement';}
+    lastTime=ts;
+  }
+  animId=requestAnimationFrame(draw);
+}
+
+function togglePlay(){
+  if(step>=64){resetSim();}
+  playing=!playing;
+  btnPlay.textContent=playing?'pause':'play settlement';
+}
+function resetSim(){step=0;playing=false;btnPlay.textContent='play settlement';seedScenario(scene);}
+function newScenario(){scene=(scene+1)%3;resetSim();}
+
+seedScenario(0);
+requestAnimationFrame(draw);
+</script>
